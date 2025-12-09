@@ -1,0 +1,8 @@
+[
+  { "type": "command", "name": "enter_cursor_mode", "timestamp": 1 },
+  { "type": "cursor_move", "dx": 10, "dy": 5, "timestamp": 2 },
+  { "type": "cursor_move", "dx": -3, "dy": 2, "timestamp": 3 },
+  { "type": "command", "name": "slide_next", "timestamp": 4 },
+  { "type": "command", "name": "slide_prev", "timestamp": 5 }
+]
+

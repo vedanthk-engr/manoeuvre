@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+websockets
+pydantic
+pyautogui
+numpy
+opencv-python
+pytesseract
+# will add whisper, openai etc later
