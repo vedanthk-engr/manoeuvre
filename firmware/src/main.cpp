@@ -1,79 +1,174 @@
+// firmware/src/main.cpp
 #include <Arduino.h>
-#include <Adafruit_MPU6050.h>
-#include <Adafruit_Sensor.h>
-#include <Wire.h>
+#include "config.h"
+#include "events.h"
+#include "touch.h"
+#include "imu.h"
 
-// --- PIN DEFINITIONS ---
-#define LED_PIN 2           // Built-in LED on most ESP32 Dev Boards
-#define TOUCH_PIN_1 4       // GPIO 4 (Touch 0)
-#define TOUCH_PIN_2 15      // GPIO 15 (Touch 3)
+TouchButton touch1(PIN_TOUCH1);
+TouchButton touch2(PIN_TOUCH2);
+IMUHandler imu;
 
-// --- OBJECTS ---
-Adafruit_MPU6050 mpu;
+enum class Mode {
+  IDLE,
+  CURSOR,
+  ANNOTATION,
+  HIGHLIGHT,
+  ZOOM,
+  VOICE
+};
 
-// --- CONFIG ---
-const int touchThreshold = 40; // Adjust based on your specific module/wire length
+Mode currentMode = Mode::IDLE;
+unsigned long lastLoopTime = 0;
+unsigned long cursorModeEnterTime = 0;
+unsigned long lastCursorActivity = 0;
+
+// For slide navigation: track long press + direction
+bool touch1LongPressActive = false;
+unsigned long touch1LongPressStartTime = 0;
+float accumulatedGyroX = 0; // Track hand movement during long press
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial) delay(10); // Wait for serial
+  delay(1000); // Give serial time to initialize
+  
+  pinMode(PIN_LED, OUTPUT);
+  digitalWrite(PIN_LED, LOW);
 
-  Serial.println("\n--- Manoeuvre Hardware Test ---");
+  touch1.begin();
+  touch2.begin();
 
-  // 1. Setup LED
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, HIGH); // On at start
-  delay(500);
-  digitalWrite(LED_PIN, LOW);
-  Serial.println("LED Test: Blinked once.");
-
-  // 2. Setup MPU6050
-  Serial.print("Initializing MPU6050...");
-  if (!mpu.begin()) {
-    Serial.println("Failed! Check wiring (SDA=21, SCL=22).");
-    while (1) {
-      digitalWrite(LED_PIN, !digitalRead(LED_PIN)); // Fast blink error
-      delay(100);
-    }
+  if (!imu.begin()) {
+    Serial.println("MPU6050 init failed");
+    digitalWrite(PIN_LED, HIGH); // Keep LED on as error indicator
+    while (1) delay(100); // Halt on IMU failure
+  } else {
+    Serial.println("MPU6050 init OK");
+    digitalWrite(PIN_LED, LOW);
   }
-  Serial.println("Success!");
+  
+  Serial.println("Manoeuvre Firmware v2.0 - Event Model Ready");
+  Serial.println("Waiting for gestures...");
+}
 
-  // MPU Config
-  mpu.setAccelerometerRange(MPU6050_RANGE_4_G);
-  mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+void handleTouch1(TouchEventType ev) {
+  switch (ev) {
+    case TouchEventType::SINGLE_TAP:
+      sendAction("tap1_single");
+      // Enter cursor mode
+      currentMode = Mode::CURSOR;
+      cursorModeEnterTime = millis();
+      lastCursorActivity = millis();
+      sendCommand("enter_cursor_mode");
+      break;
 
-  Serial.println("Setup Complete. Loops starting...");
+    case TouchEventType::DOUBLE_TAP:
+      sendAction("tap1_double");
+      // Enter voice mode (arm voice command)
+      currentMode = Mode::VOICE;
+      sendCommand("enter_voice_mode");
+      break;
+
+    case TouchEventType::LONG_PRESS_START:
+      sendAction("tap1_long");
+      touch1LongPressActive = true;
+      touch1LongPressStartTime = millis();
+      accumulatedGyroX = 0;
+      break;
+
+    case TouchEventType::LONG_PRESS_END:
+      touch1LongPressActive = false;
+      // Determine slide direction based on accumulated movement
+      // Positive gyro X = hand moved right = next slide
+      // Negative gyro X = hand moved left = prev slide
+      if (accumulatedGyroX > 0.3f) {
+        sendCommand("slide_next");
+      } else if (accumulatedGyroX < -0.3f) {
+        sendCommand("slide_prev");
+      }
+      // If movement was too small, ignore (avoid accidental slide changes)
+      accumulatedGyroX = 0;
+      break;
+
+    default:
+      break;
+  }
+}
+
+void handleTouch2(TouchEventType ev) {
+  switch (ev) {
+    case TouchEventType::SINGLE_TAP:
+      sendAction("tap2_single");
+      // Enter annotation mode
+      currentMode = Mode::ANNOTATION;
+      sendCommand("enter_annotation_mode");
+      break;
+
+    case TouchEventType::DOUBLE_TAP:
+      sendAction("tap2_double");
+      // Toggle zoom
+      sendCommand("toggle_zoom");
+      // Stay in previous mode
+      break;
+
+    case TouchEventType::TRIPLE_TAP:
+      sendAction("tap2_triple");
+      // Enter highlight mode
+      currentMode = Mode::HIGHLIGHT;
+      sendCommand("enter_highlight_mode");
+      break;
+
+    case TouchEventType::LONG_PRESS_START:
+      sendAction("tap2_long");
+      // In annotation/highlight mode, this starts drawing/highlighting
+      // Backend will handle this based on current mode
+      break;
+
+    case TouchEventType::LONG_PRESS_END:
+      // End drawing/highlighting
+      break;
+
+    default:
+      break;
+  }
 }
 
 void loop() {
-  // --- READ IMU ---
-  sensors_event_t a, g, temp;
-  mpu.getEvent(&a, &g, &temp);
+  unsigned long now = millis();
+  if (now - lastLoopTime < LOOP_DT_MS) return;
+  lastLoopTime = now;
 
-  // --- READ TOUCH ---
-  // ESP32 touchRead returns lower value when touched
-  int t1 = touchRead(TOUCH_PIN_1);
-  int t2 = touchRead(TOUCH_PIN_2);
+  // Read touch sensors
+  TouchEventType ev1 = touch1.update();
+  TouchEventType ev2 = touch2.update();
 
-  bool isTouched1 = (t1 < touchThreshold);
-  bool isTouched2 = (t2 < touchThreshold);
+  if (ev1 != TouchEventType::NONE) {
+    handleTouch1(ev1);
+  }
+  if (ev2 != TouchEventType::NONE) {
+    handleTouch2(ev2);
+  }
 
-  // --- LED FEEDBACK ---
-  // Light up LED if either sensor is touched
-  digitalWrite(LED_PIN, (isTouched1 || isTouched2) ? HIGH : LOW);
+  // Track hand movement during touch1 long press (for slide navigation)
+  if (touch1LongPressActive) {
+    float gyroX = imu.getGyroX();
+    unsigned long dt = now - touch1LongPressStartTime;
+    accumulatedGyroX += gyroX * dt / 1000.0f;
+    touch1LongPressStartTime = now;
+  }
 
-  // --- SERIAL OUTPUT ---
-  // Format: "IMU: ax,ay,az | T1: raw (bool) | T2: raw (bool)"
-  Serial.print("IMU: ");
-  Serial.print(a.acceleration.x, 1); Serial.print(",");
-  Serial.print(a.acceleration.y, 1); Serial.print(",");
-  Serial.print(a.acceleration.z, 1);
-  
-  Serial.print(" | T1: "); Serial.print(t1); Serial.print("("); Serial.print(isTouched1); Serial.print(")");
-  Serial.print(" | T2: "); Serial.print(t2); Serial.print("("); Serial.print(isTouched2); Serial.print(")");
-  
-  Serial.println();
-
-  delay(100); // 10Hz log rate
+  // In cursor mode → send cursor deltas
+  if (currentMode == Mode::CURSOR) {
+    CursorDelta d = imu.computeCursorDelta();
+    if (d.dx != 0 || d.dy != 0) {
+      sendCursorMove(d.dx, d.dy);
+      lastCursorActivity = now;
+    }
+    
+    // Auto-deactivate cursor mode after inactivity timeout
+    if (now - lastCursorActivity > CURSOR_INACTIVITY_TIMEOUT) {
+      currentMode = Mode::IDLE;
+      Serial.println("Cursor mode auto-deactivated (inactivity)");
+    }
+  }
 }
