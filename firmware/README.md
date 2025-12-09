@@ -10,15 +10,16 @@ ESP32 glove firmware (Arduino core). Reads IMU + two touch sensors, classifies t
 
 ## Phase 2 Architecture
 
-The firmware is now modular with clean separation of concerns:
+The firmware is now modular with clean separation of concerns, organized for PlatformIO:
 
-### File Structure
-- `src/config.h` – Pin definitions, timing constants, cursor sensitivity
-- `src/events.h` / `events.cpp` – JSON event builders (cursor_move, action, command)
-- `src/touch.h` / `touch.cpp` – TouchButton class for tap pattern detection
-- `src/imu.h` / `imu.cpp` – IMUHandler class for cursor delta computation
-- `src/wifi_ws.h` – Placeholder for Phase 3 WebSocket transport
+### File Structure (PlatformIO)
+- `include/config.h` – Pin definitions, timing constants, cursor sensitivity
+- `include/events.h` / `src/events.cpp` – JSON event builders (cursor_move, action, command)
+- `include/touch.h` / `src/touch.cpp` – TouchButton class for tap pattern detection
+- `include/imu.h` / `src/imu.cpp` – IMUHandler class for cursor delta computation
+- `include/wifi_ws.h` – Placeholder for Phase 3 WebSocket transport
 - `src/main.cpp` – Main loop, state machine, event routing
+- `platformio.ini` – PlatformIO configuration with library dependencies
 
 ### Event Model
 
@@ -52,18 +53,25 @@ The firmware emits three types of JSON events (currently via Serial, WebSocket i
 
 ### Building & Uploading
 
-Using PlatformIO:
-```bash
-cd firmware
-pio run -t upload
-pio device monitor  # Monitor Serial output at 115200 baud
-```
+**Using PlatformIO (Recommended):**
 
-Using Arduino IDE:
-- Open `src/main.cpp` (or create a new sketch and copy all files)
-- Install libraries: Adafruit MPU6050, Adafruit Unified Sensor, Adafruit BusIO
-- Select board: ESP32 Dev Module
-- Upload and monitor Serial at 115200
+1. Open VS Code with PlatformIO extension installed
+2. Open the `manoeuvre/` repo root folder
+3. PlatformIO will automatically detect the firmware project
+4. Build: Click ✓ icon or `Ctrl+Shift+P` → "PlatformIO: Build"
+5. Upload: Click → icon or `Ctrl+Shift+P` → "PlatformIO: Upload"
+6. Monitor: Click plug icon or `Ctrl+Shift+P` → "PlatformIO: Monitor" (115200 baud)
+
+PlatformIO will automatically:
+- Install required libraries (Adafruit MPU6050, WebSockets, ArduinoJson)
+- Handle include paths (headers in `include/` are automatically found)
+- Compile and upload to ESP32
+
+**Library Dependencies** (managed by PlatformIO):
+- `adafruit/Adafruit MPU6050`
+- `adafruit/Adafruit Unified Sensor`
+- `links2004/WebSockets`
+- `bblanchon/ArduinoJson`
 
 ### Testing Phase 2
 

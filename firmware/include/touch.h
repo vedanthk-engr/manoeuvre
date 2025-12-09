@@ -1,4 +1,4 @@
-// firmware/src/touch.h
+// firmware/include/touch.h
 #pragma once
 #include <Arduino.h>
 

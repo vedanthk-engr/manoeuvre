@@ -1,4 +1,4 @@
-// firmware/src/config.h
+// firmware/include/config.h
 #pragma once
 
 // PIN DEFINITIONS

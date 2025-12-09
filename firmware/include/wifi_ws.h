@@ -1,4 +1,4 @@
-// firmware/src/wifi_ws.h
+// firmware/include/wifi_ws.h
 #pragma once
 #include <Arduino.h>
 

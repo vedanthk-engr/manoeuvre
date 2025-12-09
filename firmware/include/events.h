@@ -1,4 +1,4 @@
-// firmware/src/events.h
+// firmware/include/events.h
 #pragma once
 #include <Arduino.h>
 
