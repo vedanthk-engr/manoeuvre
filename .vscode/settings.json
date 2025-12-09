@@ -1,0 +1,4 @@
+{
+  "platformio-ide.monitorBaudRate": 115200,
+  "platformio-ide.autoMonitorBaudRate": true
+}

@@ -56,16 +56,66 @@ The firmware emits three types of JSON events (currently via Serial, WebSocket i
 **Using PlatformIO (Recommended):**
 
 1. Open VS Code with PlatformIO extension installed
-2. Open the `manoeuvre/` repo root folder
+2. Open the `manoeuvre/` repo root folder (or navigate to `firmware/` folder)
 3. PlatformIO will automatically detect the firmware project
 4. Build: Click ✓ icon or `Ctrl+Shift+P` → "PlatformIO: Build"
 5. Upload: Click → icon or `Ctrl+Shift+P` → "PlatformIO: Upload"
-6. Monitor: Click plug icon or `Ctrl+Shift+P` → "PlatformIO: Monitor" (115200 baud)
 
 PlatformIO will automatically:
 - Install required libraries (Adafruit MPU6050, WebSockets, ArduinoJson)
 - Handle include paths (headers in `include/` are automatically found)
 - Compile and upload to ESP32
+
+### Running Serial Monitor (115200 baud)
+
+**IMPORTANT:** The firmware uses `Serial.begin(115200)`, so the monitor MUST run at 115200 baud.
+
+**Method 1: Using PlatformIO UI (VS Code) - If it shows 9600, use Method 2 or 3**
+1. Click the plug icon (🔌) in the PlatformIO toolbar at the bottom
+2. Or use `Ctrl+Shift+P` → "PlatformIO: Monitor"
+3. **If it shows 9600 instead of 115200**, use Method 2 or 3 below
+
+**Method 2: Change Baud Rate While Monitor is Running (Quick Fix)**
+1. Open the Serial Monitor using Method 1
+2. **While the monitor terminal is focused**, press: `Ctrl + T`, then press `b`
+3. Type `115200` and press Enter
+4. The header should now show: `--- Terminal on COMx | 115200 8-N-1`
+
+**Method 3: Using Command Line (Most Reliable)**
+1. Open a terminal in VS Code (`Ctrl+`` ` or Terminal → New Terminal)
+2. Navigate to the firmware directory:
+   ```bash
+   cd firmware
+   ```
+3. Run the monitor with explicit baud rate:
+   ```bash
+   pio device monitor -b 115200 -e esp32dev
+   ```
+   Or use the helper script (Windows):
+   ```bash
+   .\monitor.bat
+   ```
+   Or specify a port:
+   ```bash
+   .\monitor.bat COM4
+   ```
+
+**Method 4: Using Helper Script (Windows)**
+1. Open terminal in VS Code
+2. Navigate to firmware folder: `cd firmware`
+3. Run: `.\monitor.bat` (or `.\monitor.bat COM4` to specify port)
+
+**Verify Correct Baud Rate:**
+The terminal header should show:
+```
+--- Terminal on COMx | 115200 8-N-1
+```
+
+**Troubleshooting:**
+- If monitor still shows 9600, **restart VS Code** after making config changes
+- The `platformio.ini` has `monitor_speed = 115200` set in both `[platformio]` and `[env:esp32dev]` sections
+- VS Code PlatformIO extension sometimes caches settings - restart VS Code if needed
+- Method 2 (keyboard shortcut) is the fastest way to fix it on-the-fly
 
 **Library Dependencies** (managed by PlatformIO):
 - `adafruit/Adafruit MPU6050`

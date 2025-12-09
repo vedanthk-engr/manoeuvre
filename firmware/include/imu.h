@@ -23,6 +23,6 @@ private:
   // Simple smoothing filter
   float smoothGyroX = 0;
   float smoothGyroY = 0;
-  static const float FILTER_ALPHA = 0.7f; // smoothing factor
+  static constexpr float FILTER_ALPHA = 0.7f; // smoothing factor
 };
 

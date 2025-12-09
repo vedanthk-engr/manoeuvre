@@ -25,6 +25,8 @@ private:
   int pin;
   bool lastRawState = false;
   unsigned long lastChangeTime = 0;
+  unsigned long lastStableStateTime = 0;
+  bool stableState = false;
 
   // tap tracking
   int tapCount = 0;

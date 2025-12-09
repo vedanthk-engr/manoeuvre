@@ -5,20 +5,37 @@
 TouchButton::TouchButton(int pin) : pin(pin) {}
 
 void TouchButton::begin() {
-  pinMode(pin, INPUT);
+  // Configure with pull-up resistor (TTP223 sensors are active LOW)
+  pinMode(pin, INPUT_PULLUP);
   lastRawState = digitalRead(pin);
+  stableState = lastRawState;
   lastChangeTime = millis();
+  lastStableStateTime = millis();
 }
 
 TouchEventType TouchButton::update() {
   unsigned long now = millis();
+  // TTP223 sensors: LOW when touched, HIGH when not touched (with pull-up)
   bool raw = digitalRead(pin);
   TouchEventType event = TouchEventType::NONE;
 
-  // Edge detection
+  // Debouncing: Track raw state changes
   if (raw != lastRawState) {
-    if (raw == HIGH) {
-      // Press down
+    lastChangeTime = now;
+    lastRawState = raw;
+  }
+
+  // Check if state has been stable for debounce period
+  bool stateStable = (now - lastChangeTime) > TOUCH_DEBOUNCE_MS;
+  
+  // Only process when state is stable and different from last stable state
+  if (stateStable && raw != stableState) {
+    // State change confirmed after debounce
+    stableState = raw;
+    
+    if (raw == LOW) {  // Pressed (touched) - state just became LOW
+      // Press down - record when stable press started
+      lastStableStateTime = now;
       unsigned long timeSinceLastTap = now - lastTapTime;
       
       // If enough time passed since last tap, reset counter
@@ -29,36 +46,30 @@ TouchEventType TouchButton::update() {
       if (tapCount == 0) {
         firstTapTime = now;
       }
-      tapCount++;
-      lastTapTime = now;
-    } else {
-      // Released
-      unsigned long pressDuration = now - lastChangeTime;
+    } else {  // raw == HIGH (released/not touched) - state just became HIGH
+      // Released - calculate how long it was pressed (from stable press start)
+      unsigned long pressDuration = now - lastStableStateTime;
       
       // If long press was active → end
       if (longPressActive) {
         longPressActive = false;
         event = TouchEventType::LONG_PRESS_END;
         tapCount = 0; // Reset tap count after long press
-        lastRawState = raw;
-        lastChangeTime = now;
         return event;
       }
       
-      // Check if this was a short tap (not long press)
-      if (pressDuration <= TAP_MAX_DURATION) {
-        // Wait to see if more taps come
-        // Don't classify yet, let timeout logic handle it
+      // Only count as tap if held for minimum duration
+      if (pressDuration >= TAP_MIN_DURATION && pressDuration <= TAP_MAX_DURATION) {
+        tapCount++;
+        lastTapTime = now;
+        // Wait to see if more taps come - don't classify yet
       }
     }
-    
-    lastRawState = raw;
-    lastChangeTime = now;
   }
 
-  // Handle long press start (while still pressed)
-  if (lastRawState == HIGH && !longPressActive) {
-    unsigned long held = now - lastChangeTime;
+  // Handle long press start (while still pressed - LOW state)
+  if (stableState == LOW && !longPressActive && stateStable) {
+    unsigned long held = now - lastStableStateTime;
     if (held > LONG_PRESS_DURATION) {
       longPressActive = true;
       tapCount = 0;  // consume taps
@@ -68,7 +79,8 @@ TouchEventType TouchButton::update() {
   }
 
   // Handle taps: after timeout window, decide single/double/triple
-  if (!longPressActive && lastRawState == LOW && tapCount > 0) {
+  // Check when sensor is released (HIGH) and we have pending taps
+  if (!longPressActive && stableState == HIGH && tapCount > 0) {
     unsigned long sinceLastTap = now - lastTapTime;
     
     // If enough time has passed since last tap, classify
