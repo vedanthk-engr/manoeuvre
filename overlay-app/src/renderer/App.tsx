@@ -1,43 +1,52 @@
-import { useEffect, useState } from "react";
-import { connectOverlaySocket, OverlayMessage } from "./wsClient";
-import CursorLayer from "./canvas/CursorLayer";
-import AnnotationLayer from "./canvas/AnnotationLayer";
-import HighlightLayer from "./canvas/HighlightLayer";
-import TextOverlayLayer from "./canvas/TextOverlayLayer";
+// overlay-app/src/renderer/App.tsx
+import React from "react";
+import { useOverlayEvents } from "./hooks/useOverlayEvents";
+import { CursorLayer } from "./components/CursorLayer";
+import { AnnotationLayer } from "./components/AnnotationLayer";
+import { HighlightLayer } from "./components/HighlightLayer";
+import { TextOverlayLayer } from "./components/TextOverlayLayer";
+import { ModeIndicator } from "./components/ModeIndicator";
+import { useOverlayStore } from "./state/overlayStore";
 
-type AnnotationStroke = number[][];
-type HighlightBlock = number[];
+export const App: React.FC = () => {
+  useOverlayEvents(); // attaches WS and updates store
 
-function App() {
-  const [cursor, setCursor] = useState({ x: 0, y: 0 });
-  const [annotations, setAnnotations] = useState<AnnotationStroke[]>([]);
-  const [highlights, setHighlights] = useState<HighlightBlock[]>([]);
-  const [textOverlay, setTextOverlay] = useState<string>("");
+  const { zoomActive, zoomScale, zoomCenter } = useOverlayStore();
 
-  useEffect(() => {
-    const socket = connectOverlaySocket((msg: OverlayMessage) => {
-      if (msg.type === "cursor_update") {
-        setCursor({ x: msg.x, y: msg.y });
-      } else if (msg.type === "annotation_draw") {
-        setAnnotations((prev) => [...prev, msg.points]);
-      } else if (msg.type === "highlight_block") {
-        setHighlights((prev) => [...prev, msg.bbox]);
-      } else if (msg.type === "text_overlay") {
-        setTextOverlay(msg.content);
+  const transformStyle = zoomActive
+    ? {
+        transformOrigin: `${zoomCenter[0]}px ${zoomCenter[1]}px`,
+        transform: `scale(${zoomScale})`,
       }
-    });
-    return () => socket.close();
-  }, []);
+    : {};
 
   return (
-    <div className="overlay-root">
-      <CursorLayer x={cursor.x} y={cursor.y} />
-      <AnnotationLayer strokes={annotations} />
-      <HighlightLayer blocks={highlights} />
-      <TextOverlayLayer content={textOverlay} />
+    <div
+      className="overlay-root"
+      style={{
+        position: "fixed",
+        inset: 0,
+        pointerEvents: "none", // overlay does not block clicks (for now)
+      }}
+    >
+      <div
+        className="overlay-content"
+        style={{
+          width: "100%",
+          height: "100%",
+          position: "relative",
+          ...transformStyle,
+        }}
+      >
+        <AnnotationLayer />
+        <HighlightLayer />
+        <CursorLayer />
+      </div>
+
+      <TextOverlayLayer />
+      <ModeIndicator />
     </div>
   );
-}
+};
 
 export default App;
-

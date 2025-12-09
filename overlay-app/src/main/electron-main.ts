@@ -1,26 +1,44 @@
-import { app, BrowserWindow } from "electron";
-import path from "node:path";
+// overlay-app/src/main/electron-main.ts
+import { app, BrowserWindow, screen } from "electron";
+import path from "path";
 
-const createWindow = () => {
-  const win = new BrowserWindow({
-    width: 1280,
-    height: 720,
-    transparent: true,
+let mainWindow: BrowserWindow | null = null;
+
+function createWindow() {
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+
+  mainWindow = new BrowserWindow({
+    width,
+    height,
+    x: 0,
+    y: 0,
     frame: false,
+    transparent: true,
     alwaysOnTop: true,
+    fullscreen: true,
+    resizable: false,
+    skipTaskbar: true,
     hasShadow: false,
+    focusable: false, // optional: if true, overlay can capture clicks
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
     },
   });
 
-  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
-  if (devServerUrl) {
-    win.loadURL(devServerUrl);
+  // Load renderer (Vite dev server or built index.html)
+  if (process.env.VITE_DEV_SERVER_URL) {
+    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    win.loadFile(path.join(__dirname, "../index.html"));
+    mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
-};
+
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+}
 
 app.whenReady().then(() => {
   createWindow();
@@ -31,6 +49,8 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  // For overlay, we may want to quit when the window closes
+  if (process.platform !== "darwin") {
+    app.quit();
+  }
 });
-

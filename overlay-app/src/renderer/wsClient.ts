@@ -1,22 +1,28 @@
-export type OverlayMessage =
-  | { type: "cursor_update"; x: number; y: number }
-  | { type: "annotation_draw"; points: number[][] }
-  | { type: "highlight_block"; bbox: number[] }
-  | { type: "zoom_set"; center: number[]; scale: number }
-  | { type: "text_overlay"; content: string; position?: string };
+// overlay-app/src/renderer/wsClient.ts
+export function createOverlayWebSocket(onMessage: (data: any) => void) {
+  const ws = new WebSocket("ws://localhost:8765/overlay");
 
-export function connectOverlaySocket(onMessage: (msg: OverlayMessage) => void) {
-  const socket = new WebSocket("ws://localhost:8765/overlay");
-  socket.onmessage = (event) => {
+  ws.onopen = () => {
+    console.log("[Overlay WS] connected");
+  };
+
+  ws.onmessage = (event) => {
     try {
-      const data = JSON.parse(event.data) as OverlayMessage;
+      const data = JSON.parse(event.data);
       onMessage(data);
     } catch (err) {
-      console.error("Invalid overlay message", err);
+      console.error("Invalid JSON from backend", err);
     }
   };
-  socket.onopen = () => console.log("Overlay socket connected");
-  socket.onclose = () => console.warn("Overlay socket closed");
-  return socket;
-}
 
+  ws.onclose = () => {
+    console.log("[Overlay WS] disconnected");
+    // Optionally implement auto-reconnect
+  };
+
+  ws.onerror = (err) => {
+    console.error("[Overlay WS] error", err);
+  };
+
+  return ws;
+}

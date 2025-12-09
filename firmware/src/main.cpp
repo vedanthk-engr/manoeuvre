@@ -62,10 +62,13 @@
 #include "events.h"
 #include "touch.h"
 #include "imu.h"
+#include "wifi_ws.h"
 
 TouchButton touch1(PIN_TOUCH1);
 TouchButton touch2(PIN_TOUCH2);
 IMUHandler imu;
+WiFiWSHandler wifiWS;  // WiFi/WebSocket handler
+WiFiWSHandler* wifiWS_ptr = &wifiWS;  // Pointer for events.cpp
 
 // ============================================================================
 // MODE DEFINITIONS - Clear, distinct modes for different functions
@@ -122,8 +125,25 @@ void setup() {
   }
   
   Serial.println("========================================");
-  Serial.println("Manoeuvre Firmware v2.1 - Event Model Ready");
+  Serial.println("Manoeuvre Firmware v3.0 - Refined Touch Detection");
   Serial.println("========================================");
+  
+  // Initialize WiFi/WebSocket if enabled
+  if (ENABLE_WIFI) {
+    Serial.println("Initializing WiFi/WebSocket...");
+    if (wifiWS.begin(WIFI_SSID, WIFI_PASSWORD, BACKEND_IP, BACKEND_PORT)) {
+      Serial.println("WiFi/WebSocket connected!");
+      digitalWrite(PIN_LED, HIGH);  // LED on = connected
+      delay(200);
+      digitalWrite(PIN_LED, LOW);
+    } else {
+      Serial.println("WiFi/WebSocket failed - using Serial fallback");
+      digitalWrite(PIN_LED, HIGH);  // LED on = error
+    }
+  } else {
+    Serial.println("WiFi disabled - using Serial output");
+  }
+  
   Serial.println("");
   Serial.println("MODE REFERENCE:");
   Serial.println("  Touch1 Single Tap    → CURSOR mode (air cursor)");
@@ -302,6 +322,11 @@ void handleTouch2(TouchEventType ev) {
 void loop() {
   unsigned long now = millis();
   
+  // Update WiFi/WebSocket if enabled
+  if (ENABLE_WIFI) {
+    wifiWS.loop();
+  }
+  
   // Heartbeat every ~2 seconds
   static unsigned long lastBeat = 0;
   if (now - lastBeat > 2000) {
@@ -318,14 +343,20 @@ void loop() {
     Serial.println("\"}");
   }
   
-  // Debug: Print raw touch sensor states every 5 seconds
+  // Enhanced debug: Print raw touch sensor states and timing info
   static unsigned long lastTouchDebug = 0;
-  if (now - lastTouchDebug > 5000) {
+  if (now - lastTouchDebug > 3000) {
     lastTouchDebug = now;
-    Serial.print("{\"debug\":\"touch_raw\",\"t1\":");
+    Serial.print("{\"debug\":\"touch_status\",\"t1_raw\":");
     Serial.print(digitalRead(PIN_TOUCH1));
-    Serial.print(",\"t2\":");
+    Serial.print(",\"t1_pressed\":");
+    Serial.print(touch1.isPressed() ? 1 : 0);
+    Serial.print(",\"t2_raw\":");
     Serial.print(digitalRead(PIN_TOUCH2));
+    Serial.print(",\"t2_pressed\":");
+    Serial.print(touch2.isPressed() ? 1 : 0);
+    Serial.print(",\"uptime_ms\":");
+    Serial.print(now);
     Serial.println("}");
   }
   

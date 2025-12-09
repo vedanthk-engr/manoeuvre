@@ -1,142 +1,97 @@
+# core-backend/app/main.py
 import json
-from typing import Dict, Optional
+import logging
+from typing import Optional
 
-import pyautogui
+import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from pydantic import ValidationError
+from fastapi.responses import JSONResponse
 
-from . import config
-from .events import (
-    ActionEvent,
-    CommandEvent,
-    CursorMoveEvent,
-    IncomingEvent,
-    OverlayCursorUpdate,
-)
-from .state_machine import BackendState, StateMachine
+from .models import BaseEvent, CursorMoveEvent, ActionEvent, CommandEvent, GloveEvent
+from .state_machine import State
+from .overlay_bus import OverlayBus
+from .slide_control import handle_slide_action
 
-app = FastAPI()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("manoeuvre")
 
+app = FastAPI(title="Manoeuvre Backend")
 
-class ConnectionManager:
-    def __init__(self) -> None:
-        self.overlay_connection: Optional[WebSocket] = None
-        self.glove_connection: Optional[WebSocket] = None
-
-    async def connect_overlay(self, websocket: WebSocket) -> None:
-        await websocket.accept()
-        self.overlay_connection = websocket
-        print("Overlay connected")
-
-    async def connect_glove(self, websocket: WebSocket) -> None:
-        await websocket.accept()
-        self.glove_connection = websocket
-        print("Glove connected")
-
-    def disconnect_overlay(self) -> None:
-        self.overlay_connection = None
-        print("Overlay disconnected")
-
-    def disconnect_glove(self) -> None:
-        self.glove_connection = None
-        print("Glove disconnected")
-
-    async def broadcast_to_overlay(self, message: dict) -> None:
-        if self.overlay_connection:
-            await self.overlay_connection.send_json(message)
+state = State()
+overlay_bus = OverlayBus()
 
 
-manager = ConnectionManager()
-state_machine = StateMachine()
-
-cursor_position: Dict[str, float] = {"x": 0.0, "y": 0.0}
-
-
-def clamp_cursor(x: float, y: float) -> tuple[float, float]:
-    x = max(config.CURSOR_MIN_X, min(x, config.CURSOR_MAX_X))
-    y = max(config.CURSOR_MIN_Y, min(y, config.CURSOR_MAX_Y))
-    return x, y
+@app.get("/health")
+async def health():
+    return JSONResponse({"status": "ok"})
 
 
-def handle_command(event: CommandEvent) -> None:
-    if event.name == "slide_next":
-        pyautogui.press("right")
-    elif event.name == "slide_prev":
-        pyautogui.press("left")
-    elif event.name == "enter_cursor_mode":
-        state_machine.set_state(BackendState.CURSOR_MODE)
-    elif event.name == "toggle_zoom":
-        state_machine.set_state(BackendState.ZOOM_MODE)
-    elif event.name == "enter_annotation_mode":
-        state_machine.set_state(BackendState.ANNOTATION_MODE)
-    elif event.name == "enter_highlight_mode":
-        state_machine.set_state(BackendState.HIGHLIGHT_MODE)
-    elif event.name == "enter_voice_mode":
-        state_machine.set_state(BackendState.VOICE_MODE)
-    elif event.name == "voice_end":
-        state_machine.reset()
-
-
-def handle_cursor_move(event: CursorMoveEvent) -> OverlayCursorUpdate:
-    cursor_position["x"] += event.dx
-    cursor_position["y"] += event.dy
-    cursor_position["x"], cursor_position["y"] = clamp_cursor(
-        cursor_position["x"], cursor_position["y"]
-    )
-    return OverlayCursorUpdate(
-        type="cursor_update", x=cursor_position["x"], y=cursor_position["y"]
-    )
-
-
-def parse_event(raw: str) -> IncomingEvent:
-    data = json.loads(raw)
-    if data.get("type") == "cursor_move":
-        return CursorMoveEvent.model_validate(data)
-    if data.get("type") == "action":
-        return ActionEvent.model_validate(data)
-    if data.get("type") == "command":
-        return CommandEvent.model_validate(data)
-    raise ValidationError("Unsupported event type", CursorMoveEvent)
-
-
-@app.get("/")
-def read_root():
-    return {"status": "Manoeuvre Core Active", "port": config.PORT}
+def parse_event(raw: dict) -> Optional[GloveEvent]:
+    """Try to parse incoming dict into the correct event model."""
+    t = raw.get("type")
+    try:
+        if t == "cursor_move":
+            return CursorMoveEvent(**raw)
+        elif t == "action":
+            return ActionEvent(**raw)
+        elif t == "command":
+            return CommandEvent(**raw)
+    except Exception as e:
+        logger.warning(f"Failed to parse event: {e}")
+        return None
+    return None
 
 
 @app.websocket("/glove")
-async def glove_endpoint(websocket: WebSocket):
-    await manager.connect_glove(websocket)
+async def glove_ws(ws: WebSocket):
+    await ws.accept()
+    logger.info("Glove connected")
+
     try:
         while True:
-            data = await websocket.receive_text()
+            msg = await ws.receive_text()
+            logger.debug(f"Raw glove message: {msg}")
             try:
-                event = parse_event(data)
-                print(f"Glove Event: {event}")
-
-                if isinstance(event, CursorMoveEvent):
-                    overlay_event = handle_cursor_move(event)
-                    await manager.broadcast_to_overlay(overlay_event.model_dump())
-                elif isinstance(event, CommandEvent):
-                    handle_command(event)
-                elif isinstance(event, ActionEvent):
-                    # For now we only log raw tap actions
-                    pass
-            except ValidationError as exc:
-                print(f"Invalid event from glove: {exc}")
+                data = json.loads(msg)
             except json.JSONDecodeError:
-                print("Invalid JSON received from glove")
+                logger.warning(f"Non-JSON from glove: {msg}")
+                continue
+
+            ev = parse_event(data)
+
+            if ev is None:
+                logger.warning(f"Unrecognized event: {data}")
+                continue
+
+            actions = state.apply_event(ev)
+            logger.info(f"Event: {ev} -> actions: {actions}")
+
+            # Route actions
+            for act in actions:
+                if act.get("type") == "slide":
+                    handle_slide_action(act["direction"])
+                else:
+                    # Send to overlay(s)
+                    await overlay_bus.broadcast(json.dumps(act))
 
     except WebSocketDisconnect:
-        manager.disconnect_glove()
+        logger.info("Glove disconnected")
 
 
 @app.websocket("/overlay")
-async def overlay_endpoint(websocket: WebSocket):
-    await manager.connect_overlay(websocket)
+async def overlay_ws(ws: WebSocket):
+    await ws.accept()
+    logger.info("Overlay client connected")
+    await overlay_bus.register(ws)
+
     try:
         while True:
-            await websocket.receive_text()
+            # For now, overlay doesn't need to send anything
+            await ws.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect_overlay()
+        logger.info("Overlay client disconnected")
+        await overlay_bus.unregister(ws)
 
+
+if __name__ == "__main__":
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8765, reload=True)

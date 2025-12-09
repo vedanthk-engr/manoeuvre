@@ -1,9 +1,6 @@
 fastapi
-uvicorn
-websockets
+uvicorn[standard]
 pydantic
+websockets
 pyautogui
-numpy
-opencv-python
-pytesseract
-# will add whisper, openai etc later
+# will add opencv-python, numpy, pytesseract, openai, whisper etc later

@@ -2,12 +2,8 @@
 #pragma once
 #include <Arduino.h>
 
-// Placeholder for Phase 3 - WiFi and WebSocket functionality
-// For now, events are sent via Serial
-// Later this will handle:
-// - WiFi connection
-// - WebSocket client to ws://<LAPTOP_IP>:8765/glove
-// - Sending JSON events over WebSocket instead of Serial
+// WiFi and WebSocket handler for Phase 3
+// Connects to backend at ws://<LAPTOP_IP>:8765/glove
 
 class WiFiWSHandler {
 public:
@@ -15,9 +11,12 @@ public:
   void sendEvent(const char* jsonEvent);
   void loop();
   bool isConnected() const { return connected; }
+  
+  // Get local IP for debugging
+  String getLocalIP() const { return localIP; }
 
 private:
   bool connected = false;
-  // WebSocket client will be added here later
+  String localIP = "";
+  void* wsClient = nullptr;  // WebSocketsClient pointer (opaque to avoid include)
 };
-
